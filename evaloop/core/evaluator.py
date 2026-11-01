@@ -56,6 +56,28 @@ class EvaLoopEvaluator:
         self._save_results([model_result], "code_generation_summarization")
         return [model_result]
     
+    def run_loop(self) -> List[Dict[str, Any]]:
+        """Run the loop selected by ``config.loop_type`` (Assignment 4 extension).
+
+        Identical to run_code_generation_summarization except that the task
+        sequence comes from ``config.loop_type`` and the result file records the
+        loop type, prompt templates, task subset and API usage.
+        """
+        model = self._create_model()
+        tasks = self._create_tasks()
+        prompts, py_problems = self._load_dataset()
+        tester = self._create_tester(py_problems)
+        self._checkpoint_path = str(Path(self.config.output_dir) /
+                                    f"{self.config.experiment_name}.checkpoint.json")
+        model_result = self._run_evaluation_cycles(model, tasks, prompts, py_problems, tester)
+        model_result["loop_type"] = self.config.loop_type
+        model_result["config"] = self.config.to_dict()
+        model_result["task_configs"] = self.config.get_task_configs(self.config.loop_type)
+        model_result["n_tasks"] = len(prompts)
+        model_result["usage"] = getattr(model, "usage", None)
+        self._save_results([model_result], self.config.loop_type)
+        return [model_result]
+
     def run_code_translation(self) -> Dict[str, Any]:
         """
         Run code translation evaluation.
@@ -77,7 +99,8 @@ class EvaLoopEvaluator:
     
     def _create_tasks(self):
         """Create task instances."""
-        task_configs = self.config.get_task_configs("code_generation_summarization")
+        task_configs = self.config.get_task_configs(
+            getattr(self.config, "loop_type", "code_generation_summarization"))
         tasks = [self.task_factory.create_task(config) for config in task_configs]
         self.logger.info(f"Created {len(tasks)} tasks for evaluation")
         return tasks
@@ -87,6 +110,15 @@ class EvaLoopEvaluator:
         py_problems, ground_truth = load_mbpp_dataset()
         self.logger.info(f"Loaded MBPP dataset with {len(py_problems)} problems")
         
+        # Optional reproducible random subset (Assignment 4: >= 100 tasks)
+        selected = list(py_problems)
+        n_tasks = getattr(self.config, "n_tasks", None)
+        if n_tasks and n_tasks < len(selected):
+            import random
+            selected = sorted(random.Random(self.config.sample_seed).sample(selected, n_tasks),
+                              key=lambda t: int(t.split("/")[-1]))
+            py_problems = {t: py_problems[t] for t in selected}
+
         # Prepare prompts from dataset
         prompts = []
         for task_id, problem in py_problems.items():
@@ -129,6 +161,12 @@ class EvaLoopEvaluator:
                 cycle_output, model_result, tasks, py_problems, tester, current_cycle
             )
             
+            # Checkpoint after every cycle so a crashed API run keeps its progress
+            checkpoint = getattr(self, "_checkpoint_path", None)
+            if checkpoint:
+                with open(checkpoint, "w") as f:
+                    json.dump({"completed_cycle": current_cycle, "result": model_result}, f)
+
             if not current_prompts:
                 self.logger.info(f"All prompts failed or completed after cycle {current_cycle}")
                 break

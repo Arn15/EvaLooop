@@ -1,0 +1,12 @@
+# Sandbox for running untrusted model-generated code (Assignment 4).
+# The container sees only the repo (and the data package, read-only).
+FROM python:3.11-slim
+WORKDIR /work/EvaLooop
+ENV XDG_CACHE_HOME=/work/cache PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir "evalplus==0.3.1" "google-genai>=1.0" fire tqdm matplotlib pyyaml
+# Download MBPP+ and pre-compute the ground truth at build time.
+COPY . /work/EvaLooop
+RUN python -c "import sys; sys.path.insert(0,'.'); from evaloop.evaluation.py_testing import load_mbpp_dataset; load_mbpp_dataset()"
+RUN useradd -m runner && mkdir -p results logs analysis && chown -R runner /work
+USER runner
+CMD ["bash", "scripts/run_all.sh"]

@@ -6,6 +6,17 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 
+STANDARD_GENERATION_TEMPLATE = (
+    "Generate Python code for the following task:\n\n{description}\n\n"
+    "Return only the code, without explanations or comments."
+)
+STANDARD_SUMMARIZATION_TEMPLATE = (
+    "Summarize what the following code does in a detailed description:\n\n"
+    "```\n{code}\n```\n\n"
+    "Return only the summary, without explanations or comments."
+)
+
+
 @dataclass
 class EvaluationConfig:
     """Configuration for evaluation experiments."""
@@ -50,6 +61,17 @@ class EvaluationConfig:
     
     # API configuration
     openai_api_key: Optional[str] = None
+
+    # Loop / task-subset configuration (Assignment 4 extension)
+    # loop_type: "code_generation_summarization" (repo default prompts),
+    #            "standard" (data-package prompts) or "code_pseudocode" (extension)
+    loop_type: str = "code_generation_summarization"
+    n_tasks: Optional[int] = None      # None = all 378 MBPP+ tasks
+    sample_seed: int = 0               # seed for the random task subset
+    concurrency: int = 8               # parallel API calls (Gemini backend)
+    thinking_budget: int = 0           # Gemini 2.5 thinking budget
+    backend: Optional[str] = None      # force a backend, e.g. "vllm_chat"
+    dtype: str = "auto"                # vllm_chat: "half" on T4 / P100 GPUs
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -120,6 +142,13 @@ class EvaluationConfig:
             "gpu_memory_utilization": self.gpu_memory_utilization,
             "max_model_len": self.max_model_len,
             "trust_remote_code": self.trust_remote_code,
+            "loop_type": self.loop_type,
+            "n_tasks": self.n_tasks,
+            "sample_seed": self.sample_seed,
+            "max_new_tokens": self.max_new_tokens,
+            "thinking_budget": self.thinking_budget,
+            "backend": self.backend,
+            "dtype": self.dtype,
         }
     
     def get_model_config(self) -> Dict[str, Any]:
@@ -129,7 +158,11 @@ class EvaluationConfig:
     def _create_model_config(self, model: str) -> Dict[str, Any]:
         """Create configuration for a specific model."""
         # Determine model type based on model name/path
-        if any(provider in model.lower() for provider in ["gpt", "chatgpt", "openai"]):
+        if self.backend:
+            model_type = self.backend
+        elif model.lower().startswith("gemini"):
+            model_type = "gemini"
+        elif any(provider in model.lower() for provider in ["gpt", "chatgpt", "openai"]):
             model_type = "openai"
         elif "claude" in model.lower():
             model_type = "anthropic"
@@ -150,7 +183,23 @@ class EvaluationConfig:
             "top_p": self.top_p,
         }
         
-        if model_type == "openai":
+        if model_type == "vllm_chat":
+            base_config.update({
+                "path": model,
+                "dtype": self.dtype,
+                "tensor_parallel_size": self.tensor_parallel_size,
+                "max_model_len": self.max_model_len,
+                "gpu_memory_utilization": self.gpu_memory_utilization,
+                "max_new_tokens": self.max_new_tokens,
+            })
+        elif model_type == "gemini":
+            base_config.update({
+                "model_id": model,
+                "max_new_tokens": self.max_new_tokens,
+                "concurrency": self.concurrency,
+                "thinking_budget": self.thinking_budget,
+            })
+        elif model_type == "openai":
             base_config.update({
                 "model_id": model,
                 "api_key": self.openai_api_key,
@@ -416,8 +465,25 @@ class EvaluationConfig:
                     "prompt_template": "Use one sentence to summarize the following code and start with 'write a python function to':\n\n```\n{code}\n```\n\n```\nwrite a python function to\n```",
                 },
             ]
+        elif task_type in ("standard", "code_pseudocode"):
+            # Exact prompts of the provided data package (prompts/task_prompts.md),
+            # so runs are comparable with the 60-model MBPP+ baseline. Only the
+            # second (inverse) task differs between the two loops.
+            generation = {
+                "type": "code_generation",
+                "language": "python",
+                "prompt_template": STANDARD_GENERATION_TEMPLATE,
+            }
+            if task_type == "standard":
+                inverse = {"type": "code_summarization",
+                           "prompt_template": STANDARD_SUMMARIZATION_TEMPLATE}
+            else:
+                from ..tasks.code_pseudocode import DEFAULT_PSEUDOCODE_TEMPLATE
+                inverse = {"type": "code_pseudocode",
+                           "prompt_template": DEFAULT_PSEUDOCODE_TEMPLATE}
+            return [generation, inverse]
         elif task_type == "code_translation":
             # Code translation is not currently supported but kept as interface
             raise NotImplementedError("Code translation is not currently supported")
         else:
-            raise ValueError(f"Unsupported task type: {task_type}. Currently only 'code_generation_summarization' is supported.")
+            raise ValueError(f"Unsupported task type: {task_type}. Supported: 'code_generation_summarization', 'standard', 'code_pseudocode'.")

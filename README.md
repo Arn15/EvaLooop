@@ -1,5 +1,7 @@
 # EvaLooop: LLM Robustness Evaluation Framework
 
+> **Fork note (CSC 591/791 Assignment 4):** this fork adds a *code ↔ pseudocode* loop and a Gemini backend. See [README_ASSIGNMENT4.md](README_ASSIGNMENT4.md) for the design, the list of modified files and how to reproduce the results.
+
 [![arXiv](https://img.shields.io/badge/arXiv-2505.12185-b31b1b.svg)](https://arxiv.org/abs/2505.12185)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
