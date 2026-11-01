@@ -34,7 +34,11 @@ New files:
   subclasses `CodeSummarizationTask` so that it reuses the assert-line `postprocess` unchanged.
 - `evaloop/models/vllm_chat.py`: local-GPU vLLM backend that applies each model's **chat template**
   (`LLM.chat`). Upstream's `VllmLLM` uses a generic "System:/User:/Assistant:" text format instead. The new backend also adds a `dtype` option ("half" for T4 GPUs), greedy decoding, and a
-  context-length guard. It is used for the reported Kaggle runs.
+  context-length guard, plus `max_num_seqs` / `enforce_eager` memory knobs. If generation crashes (e.g. CUDA OOM),
+  the run is saved as `*.FAILED.json` and the script exits with an error. Upstream would instead record every task as a
+  test failure, which silently produces ASL = 0. It is used for the reported Kaggle runs. On T4 GPUs we set
+  `VLLM_ATTENTION_BACKEND=XFORMERS_VLLM_V1`, because vLLM 0.10.2 otherwise falls back to the much slower FlexAttention.
+- `kaggle/evaloop_assignment4_kaggle_qwen.ipynb` is the second session (Qwen only).
 - `kaggle/evaloop_assignment4_kaggle.ipynb` is the notebook that produced the results, on Kaggle 2×T4 with no API key.
 - `evaloop/models/gemini.py`: Gemini backend (google-genai SDK; works with an API key or with Vertex AI).
   Greedy decoding, thinking budget 0 on 2.5 models, retries with backoff, token accounting, and a

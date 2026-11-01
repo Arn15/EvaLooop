@@ -72,6 +72,8 @@ class EvaluationConfig:
     thinking_budget: int = 0           # Gemini 2.5 thinking budget
     backend: Optional[str] = None      # force a backend, e.g. "vllm_chat"
     dtype: str = "auto"                # vllm_chat: "half" on T4 / P100 GPUs
+    max_num_seqs: Optional[int] = None # vllm_chat: cap concurrent sequences (memory)
+    enforce_eager: bool = False        # vllm_chat: disable CUDA graphs (memory)
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -191,6 +193,8 @@ class EvaluationConfig:
                 "max_model_len": self.max_model_len,
                 "gpu_memory_utilization": self.gpu_memory_utilization,
                 "max_new_tokens": self.max_new_tokens,
+                "max_num_seqs": self.max_num_seqs,
+                "enforce_eager": self.enforce_eager,
             })
         elif model_type == "gemini":
             base_config.update({

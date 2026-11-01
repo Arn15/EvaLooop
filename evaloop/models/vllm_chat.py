@@ -22,7 +22,13 @@ class VllmChatLLM(BaseLLM):
 
         self.logger = logging.getLogger(__name__)
         self.model_path = model_config["path"]
+        llm_kwargs = {}
+        if model_config.get("max_num_seqs"):
+            llm_kwargs["max_num_seqs"] = int(model_config["max_num_seqs"])
+        if model_config.get("enforce_eager"):
+            llm_kwargs["enforce_eager"] = True
         self.llm = LLM(
+            **llm_kwargs,
             model=self.model_path,
             dtype=model_config.get("dtype", "auto"),
             tensor_parallel_size=int(model_config.get("tensor_parallel_size", 1)),
@@ -37,7 +43,8 @@ class VllmChatLLM(BaseLLM):
         )
         self.tokenizer = self.llm.get_tokenizer()
         self.max_prompt_tokens = int(model_config.get("max_model_len", 8192)) - self.sampling.max_tokens
-        self.usage = {"calls": 0, "prompt_tokens": 0, "output_tokens": 0, "truncated_prompts": 0}
+        self.usage = {"calls": 0, "prompt_tokens": 0, "output_tokens": 0, "truncated_prompts": 0,
+                      "fatal_error": None}
 
     def _messages(self, prompt: str):
         # Guard against a runaway prompt (e.g. a degenerate 1024-token summary
@@ -51,7 +58,13 @@ class VllmChatLLM(BaseLLM):
     def batch_generate(self, prompts: List[str]) -> List[str]:
         if not prompts:
             return []
-        outputs = self.llm.chat([self._messages(p) for p in prompts], self.sampling, use_tqdm=True)
+        try:
+            outputs = self.llm.chat([self._messages(p) for p in prompts], self.sampling, use_tqdm=True)
+        except Exception as exc:
+            # The loop runner would otherwise record every task as a test failure.
+            # Remember the error so run_loop.py can discard the run and exit non-zero.
+            self.usage["fatal_error"] = f"{type(exc).__name__}: {exc}"[:500]
+            raise
         texts = []
         for out in outputs:
             self.usage["calls"] += 1

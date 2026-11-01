@@ -11,6 +11,7 @@ Writes  results/<model>__<loop>_<loop>_results.json  (framework format).
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -37,6 +38,8 @@ def main() -> None:
     ap.add_argument("--tensor_parallel_size", type=int, default=1)
     ap.add_argument("--max_model_len", type=int, default=8192)
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.90)
+    ap.add_argument("--max_num_seqs", type=int, default=None)
+    ap.add_argument("--enforce_eager", action="store_true")
     ap.add_argument("--output_dir", default="results/")
     ap.add_argument("--log_level", default="WARNING")
     args = ap.parse_args()
@@ -54,6 +57,7 @@ def main() -> None:
         is_chat_model=True, system_prompt="",
         backend=args.backend, dtype=args.dtype, tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len, gpu_memory_utilization=args.gpu_memory_utilization,
+        max_num_seqs=args.max_num_seqs, enforce_eager=args.enforce_eager,
     )
     # Preflight: fail fast on a bad key / model name instead of silently
     # recording 378 empty generations as test failures.
@@ -68,13 +72,21 @@ def main() -> None:
     result = EvaLoopEvaluator(config).run_loop()[0]
     result["wall_clock_seconds"] = round(time.time() - t0, 1)
     result["model_alias"] = alias
+    result["attention_backend"] = os.environ.get("VLLM_ATTENTION_BACKEND", "default")
     out = Path(args.output_dir) / f"{name}_{args.loop}_results.json"
+    usage = result.get("usage") or {}
+    if usage.get("fatal_error") or (usage.get("calls", 1) == 0):
+        # Model crashed (e.g. CUDA OOM): never keep a run whose "failures" are infra errors.
+        failed = out.with_suffix(".FAILED.json")
+        failed.write_text(json.dumps([result], indent=2))
+        if out.exists():
+            out.unlink()
+        sys.exit(f"[failed] {name}: generation error {usage.get('fatal_error')!r} -> {failed}")
     out.write_text(json.dumps([result], indent=2))
 
     cycles = [r["successful_cycles"] for r in result["prompt_results"]]
     T, M = len(cycles), args.max_cycles
     asl = sum(c * c for c in cycles) / (T * M)
-    usage = result.get("usage") or {}
     if usage.get("errors"):
         print(f"WARNING: {usage['errors']} API calls failed after retries (recorded as empty output).")
     print(f"[done] {name}: n_tasks={T} success_rate={sum(c >= 1 for c in cycles) / T:.3f} "
