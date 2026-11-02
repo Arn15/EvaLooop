@@ -74,6 +74,7 @@ class EvaluationConfig:
     dtype: str = "auto"                # vllm_chat: "half" on T4 / P100 GPUs
     max_num_seqs: Optional[int] = None # vllm_chat: cap concurrent sequences (memory)
     enforce_eager: bool = False        # vllm_chat: disable CUDA graphs (memory)
+    resume_checkpoint: Optional[str] = None  # continue a run from its .checkpoint.json
     
     def __post_init__(self):
         """Validate configuration after initialization."""

@@ -36,8 +36,9 @@ New files:
   (`LLM.chat`). Upstream's `VllmLLM` uses a generic "System:/User:/Assistant:" text format instead. The new backend also adds a `dtype` option ("half" for T4 GPUs), greedy decoding, and a
   context-length guard, plus `max_num_seqs` / `enforce_eager` memory knobs. If generation crashes (e.g. CUDA OOM),
   the run is saved as `*.FAILED.json` and the script exits with an error. Upstream would instead record every task as a
-  test failure, which silently produces ASL = 0. It is used for the reported Kaggle runs. On T4 GPUs we set
-  `VLLM_ATTENTION_BACKEND=XFORMERS_VLLM_V1`, because vLLM 0.10.2 otherwise falls back to the much slower FlexAttention.
+  test failure, which silently produces ASL = 0. It is used for the reported Kaggle runs. On T4 GPUs, vLLM 0.10.2
+  defaults to FlexAttention. The notebooks smoke-test the faster `TRITON_ATTN_VLLM_V1` backend first and fall back
+  to FlexAttention if it fails. The backend actually used is recorded in each results JSON (`attention_backend`).
 - `kaggle/evaloop_assignment4_kaggle_qwen.ipynb` is the second session (Qwen only).
 - `kaggle/evaloop_assignment4_kaggle.ipynb` is the notebook that produced the results, on Kaggle 2×T4 with no API key.
 - `evaloop/models/gemini.py`: Gemini backend (google-genai SDK; works with an API key or with Vertex AI).
@@ -62,6 +63,19 @@ Modified (kept minimal):
   `gemini` is registered.
 
 `evaloop/evaluation/cycle.py` (the loop runner) and the EvalPlus tester are **not** modified.
+
+## Results (all 378 MBPP+ tasks, greedy, max 10 cycles)
+
+| model | configuration | n_tasks | success_rate | asl_score |
+|---|---|---|---|---|
+| seed-coder-8b-instruct | standard-mbpp-plus | 378 | 0.738 | 7.146 |
+| seed-coder-8b-instruct | code-pseudocode-mbpp-plus | 378 | 0.738 | 5.963 |
+| qwen2.5-coder-7b-instruct | standard-mbpp-plus | 378 | 0.735 | 6.938 |
+| qwen2.5-coder-7b-instruct | code-pseudocode-mbpp-plus | 378 | 0.735 | 6.696 |
+
+Analysis scripts: `scripts/analyze_extension.py` (summary.csv, metrics, survival curves, failure dumps),
+`scripts/classify_failures.py` (failure taxonomy; re-tests scaffold-stripped code with EvalPlus, so it must run in a sandbox),
+`scripts/report_stats.py` (bootstrap CIs, sign tests), `scripts/report_figures.py` (report figures).
 
 ## How to run
 

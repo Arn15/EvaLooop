@@ -148,6 +148,26 @@ class EvaLoopEvaluator:
         # Run cycles until max_cycles or all prompts fail
         current_prompts = prompts.copy()
         current_cycle = 0
+
+        # Resume from a per-cycle checkpoint (e.g. after a Kaggle 12 h timeout):
+        # restore all finished cycles and continue only with the tasks that were
+        # still alive, feeding them the carried text of their last passing cycle.
+        resume = getattr(self.config, "resume_checkpoint", None)
+        if resume:
+            with open(resume) as f:
+                ckpt = json.load(f)
+            model_result = ckpt["result"]
+            current_cycle = int(ckpt["completed_cycle"])
+            last_task = self.TASK_OUTPUT_KEY_TEMPLATE.format(len(tasks))
+            current_prompts = [
+                {"task_id": r["task_id"], "prompt": r["cycles"][-1][last_task]}
+                for r in model_result["prompt_results"]
+                if r["successful_cycles"] == current_cycle and r["cycles"]
+                and r["cycles"][-1].get("success") and last_task in r["cycles"][-1]
+            ]
+            model_result.setdefault("resumed_after_cycle", []).append(current_cycle)
+            self.logger.warning(f"Resuming after cycle {current_cycle} with "
+                                f"{len(current_prompts)} live tasks from {resume}")
         
         while current_cycle < self.config.max_cycles and current_prompts:
             current_cycle += 1

@@ -40,6 +40,7 @@ def main() -> None:
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.90)
     ap.add_argument("--max_num_seqs", type=int, default=None)
     ap.add_argument("--enforce_eager", action="store_true")
+    ap.add_argument("--resume", default=None, help="path to a <name>.checkpoint.json to continue")
     ap.add_argument("--output_dir", default="results/")
     ap.add_argument("--log_level", default="WARNING")
     args = ap.parse_args()
@@ -58,6 +59,7 @@ def main() -> None:
         backend=args.backend, dtype=args.dtype, tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len, gpu_memory_utilization=args.gpu_memory_utilization,
         max_num_seqs=args.max_num_seqs, enforce_eager=args.enforce_eager,
+        resume_checkpoint=args.resume,
     )
     # Preflight: fail fast on a bad key / model name instead of silently
     # recording 378 empty generations as test failures.
